@@ -1,0 +1,186 @@
+// This is your Prisma schema file,
+// learn more about it in our docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+// ============================================
+// USER / AUTH
+// ============================================
+
+enum UserRole {
+  ADMIN      // Jacob - full access
+  STAFF      // Part-time intake staff
+  CONSIGNOR  // External client - sees only their own items
+}
+
+model User {
+  id            String    @id @default(cuid())
+  email         String    @unique
+  passwordHash  String?
+  role          UserRole  @default(CONSIGNOR)
+  isActive      Boolean   @default(true)
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  // For magic link login
+  magicLinkToken    String?   @unique
+  magicLinkExpires  DateTime?
+
+  // Link to consignor if role is CONSIGNOR
+  consignorId      String?   @unique
+  consignor        Consignor? @relation(fields: [consignorId], references: [id])
+
+  // Password login (staff/admin)
+  passwordLoginEnabled Boolean @default(false)
+}
+
+// ============================================
+// CONSIGNOR (the external client)
+// ============================================
+
+enum PaymentMethod {
+  VENMO
+  ZELLE
+  PAYPAL
+  CASH
+  CHECK
+}
+
+model Consignor {
+  id          String    @id @default(cuid())
+  name        String
+  email       String    @unique
+  phone       String?
+  address     String?   // mailing address for check payouts
+  notes       String?
+
+  // Payment preferences
+  paymentMethod       PaymentMethod @default(VENMO)
+  paymentHandle       String?       // @venmo_name or email or phone
+
+  // Commission defaults for this consignor
+  defaultCommissionPct  Int        @default(60)  // consignor's cut (e.g. 60 = 60%)
+  holdDays              Int        @default(60)  // days before item considered expired
+
+  // W9
+  w9OnFile      Boolean   @default(false)
+  w9UploadedAt DateTime?
+
+  // Tracking
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  // Relations
+  items         ConsignmentItem[]
+  payouts       Payout[]
+  user          User?
+
+  activeItemsCount  Int   @default(0) // denormalized counter for quick display
+}
+
+model ConsignmentItem {
+  id              String    @id @default(cuid())
+
+  // Item details
+  title           String
+  description     String?
+  condition       String?   // e.g. "Like New", "Good", "Fair", "For Parts"
+  defectNotes     String?   // issues the consignor declared
+
+  // Photos (JSON array of URLs/filepaths)
+  photos          String[]  @default([]) // stored as JSON in PostgreSQL
+
+  // Pricing
+  askingPrice     Float     // what consignor wants
+  minimumPrice    Float?    // floor they'll accept
+  priceListed     Float?    // price we actually listed at
+
+  // Status flow: intake → listed → pending_sale → sold → paid_out
+  //                                ↘ returned / expired
+  status          String    @default("intake")
+    // intake | listed | pending_sale | sold | paid_out | returned | expired
+
+  // Platform listings (JSON: { "ebay": "url", "etsy": "url", ... })
+  listingUrls      Json?     @default("{}")
+
+  // Price change history [{ date, price, note }]
+  priceHistory     Json?     @default("[]")
+
+  // Issue flag (staff can mark)
+  hasIssue         Boolean   @default(false)
+  issueNote        String?
+
+  // Intake
+  intakeDate       DateTime  @default(now())
+  holdDeadline     DateTime  // calculated from consignor's holdDays
+  listedDate       DateTime?
+  soldDate         DateTime?
+  shippedDate      DateTime?
+  paidOutDate      DateTime?
+
+  // Sale financials
+  salePrice        Float?
+  commissionPct    Int?      // override per item (defaults to consignor's)
+  netSalePrice     Float?    // salePrice * commissionPct
+  payoutAmount     Float?    // what we owe the consignor
+  payoutStatus     String?   // pending | queued | sent
+
+  // Relations
+  consignor        Consignor  @relation(fields: [consignorId], references: [id])
+  consignorId      String
+
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+
+  // Staff notes (internal)
+  staffNotes       String?
+
+  @@index([consignorId])
+  @@index([status])
+  @@index([holdDeadline])
+}
+
+// ============================================
+// PAYOUT
+// ============================================
+
+model Payout {
+  id          String    @id @default(cuid())
+
+  amount      Float
+  method      PaymentMethod
+  note        String?
+
+  // Link to which consignor
+  consignor   Consignor  @relation(fields: [consignorId], references: [id])
+  consignorId String
+
+  // Link to which items were paid out (optional)
+  itemIds     String[]  // JSON array of ConsignmentItem IDs included in this payout
+
+  paidAt      DateTime  @default(now())
+  createdAt   DateTime  @default(now())
+
+  @@index([consignorId])
+}
+
+// ============================================
+// INTAKE BATCH (optional grouping)
+// ============================================
+
+model IntakeBatch {
+  id          String    @id @default(cuid())
+  name        String?   // e.g. "Johnson pickup - May 27"
+  notes       String?
+
+  itemCount   Int       @default(0)
+
+  createdBy   String    // User ID of staff who created
+  createdAt   DateTime  @default(now())
+}
