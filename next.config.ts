@@ -9,15 +9,6 @@ const nextConfig: NextConfig = {
       },
     ],
   },
-  // Serve uploaded files
-  async rewrites() {
-    return [
-      {
-        source: "/uploads/:path*",
-        destination: "/var/www/playfulplastics-portal/uploads/:path*",
-      },
-    ];
-  },
 };
 
 export default nextConfig;

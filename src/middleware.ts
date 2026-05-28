@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
 
-const publicPaths = ["/login", "/api/auth", "/_next", "/favicon", "/public"];
+const publicPaths = ["/login", "/api/auth", "/_next", "/favicon", "/public", "/uploads"];
 
 export function middleware(req: NextRequest) {
   const { pathname } = req.nextUrl;
@@ -11,11 +11,11 @@ export function middleware(req: NextRequest) {
     return NextResponse.next();
   }
 
-  // Check for session token (next-auth session cookie)
+  // Check for session cookie
   const sessionCookie = req.cookies.get("next-auth.session-token") 
     || req.cookies.get("__Secure-next-auth.session-token");
 
-  if (!sessionCookie) {
+  if (!sessionCookie && !pathname.startsWith("/api/")) {
     return NextResponse.redirect(new URL("/login", req.url));
   }
 
